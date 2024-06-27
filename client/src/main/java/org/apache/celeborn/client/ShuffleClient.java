@@ -265,6 +265,7 @@ public abstract class ShuffleClient {
           ExceptionMaker exceptionMaker,
           ArrayList<PartitionLocation> locations,
           PbStreamHandler streamHandlers,
+          ArrayList<ArrayList<String>> filesGroupedByLocation,
           int[] mapAttempts,
           MetricsCallback metricsCallback)
           throws IOException;

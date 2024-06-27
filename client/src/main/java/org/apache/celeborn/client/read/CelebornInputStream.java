@@ -70,6 +70,7 @@ public abstract class CelebornInputStream extends InputStream {
             shuffleKey,
             locations,
             streamHandlers,
+            null,
             attempts,
             attemptNumber,
             startMapIndex,
@@ -91,6 +92,7 @@ public abstract class CelebornInputStream extends InputStream {
           String shuffleKey,
           ArrayList<PartitionLocation> locations,
           ArrayList<PbStreamHandler> streamHandlers,
+          ArrayList<ArrayList<String>> filesGroupedByLocation,
           int[] attempts,
           int attemptNumber,
           int startMapIndex,
@@ -113,6 +115,7 @@ public abstract class CelebornInputStream extends InputStream {
               shuffleKey,
               locations,
               streamHandlers,
+              filesGroupedByLocation,
               attempts,
               attemptNumber,
               startMapIndex,
@@ -167,6 +170,7 @@ public abstract class CelebornInputStream extends InputStream {
     private final String shuffleKey;
     private ArrayList<PartitionLocation> locations;
     private ArrayList<PbStreamHandler> streamHandlers;
+    private ArrayList<ArrayList<String>> filesGroupedByLocation;
     private int[] attempts;
     private final int attemptNumber;
     private final int startMapIndex;
@@ -219,6 +223,7 @@ public abstract class CelebornInputStream extends InputStream {
         String shuffleKey,
         ArrayList<PartitionLocation> locations,
         ArrayList<PbStreamHandler> streamHandlers,
+        ArrayList<ArrayList<String>> filesGroupedByLocation,
         int[] attempts,
         int attemptNumber,
         int startMapIndex,
@@ -238,6 +243,9 @@ public abstract class CelebornInputStream extends InputStream {
       this.locations = locations;
       if (streamHandlers != null && streamHandlers.size() == locations.size()) {
         this.streamHandlers = streamHandlers;
+      }
+      if (filesGroupedByLocation != null && filesGroupedByLocation.size() == locations.size()) {
+        this.filesGroupedByLocation = filesGroupedByLocation;
       }
       this.attempts = attempts;
       this.attemptNumber = attemptNumber;

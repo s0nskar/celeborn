@@ -252,7 +252,8 @@ class CelebornShuffleReader[K, C](
               hostPort,
               (client, new util.ArrayList[PartitionLocation], pbCompositeOpenStream))
           }
-          val (_, _, pbCompositeOpenStream) = workerCompositeRequestMap.get(hostPort)
+          val (_, locArr, pbCompositeOpenStream) = workerCompositeRequestMap.get(hostPort)
+          locArr.add(location)
           pbCompositeOpenStream.addFileName(location.getFileName)
         }
       }
@@ -278,7 +279,7 @@ class CelebornShuffleReader[K, C](
           if (pbCompositeOpenStreamResponse != null) {
             val streamHandlerOpt = pbCompositeOpenStreamResponse.getStreamHandlerOpt
             if (streamHandlerOpt.getStatus == StatusCode.SUCCESS.getValue) {
-              workerCompositeRequestMap.put(hostAndFetchPort, streamHandlerOpt.getStreamHandler)
+              workerCompositeRequestMap.put(locArr.get(0), streamHandlerOpt.getStreamHandler)
             }
           }
         }
@@ -289,6 +290,15 @@ class CelebornShuffleReader[K, C](
     // TODO: Add timer here
 
     def createCompositeInputStream(): CelebornInputStream = {
+      val locations = workerCompositeStreamMap.keySet()
+      val streamHandlers = workerCompositeStreamMap.values()
+
+      val filesArray = ArrayList[ArrayList[String]]()
+      locations.forEach { location =>
+        val (_, locArr, _) = workerCompositeRequestMap.get(location.hostAndFetchPort)
+        filesArray.add(location)
+      }
+
       if (exceptionRef.get() == null) {
         try {
           shuffleClient.readPartitions(
@@ -304,6 +314,7 @@ class CelebornShuffleReader[K, C](
             locations,
             // TODO: Pass streamhandlers
             streamHandlers,
+            filesArray,
             fileGroups.mapAttempts,
             metricsCallback)
         } catch {
@@ -318,6 +329,56 @@ class CelebornShuffleReader[K, C](
         }
       } else null
     }
+
+    val compositeStream = createCompositeInputStream()
+
+    val recordIter = if (handle.numMappers > 0) {
+      val startFetchWait = System.nanoTime()
+      val compositeStream = createCompositeInputStream()
+      if (exceptionRef.get() != null) {
+        exceptionRef.get() match {
+          case ce @ (_: CelebornIOException | _: PartitionUnRetryAbleException) =>
+            if (throwsFetchFailure &&
+              shuffleClient.reportShuffleFetchFailure(handle.shuffleId, shuffleId)) {
+              throw new FetchFailedException(
+                null,
+                handle.shuffleId,
+                -1,
+                -1,
+                startPartition,
+                SparkUtils.FETCH_FAILURE_ERROR_MSG + handle.shuffleId + "/" + shuffleId,
+                ce)
+            } else
+              throw ce
+          case e => throw e
+        }
+      }
+      metricsCallback.incReadTime(
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startFetchWait))
+      // ensure inputStream is closed when task completes
+      context.addTaskCompletionListener[Unit](_ => inputStream.close())
+      inputStream
+    } else {
+      CelebornInputStream.empty()
+    }.map(serializerInstance.deserializeStream(_).asKeyValueIterator).flatMap { iter =>
+        try {
+          iter
+        } catch {
+          case e @ (_: CelebornIOException | _: PartitionUnRetryAbleException) =>
+            if (throwsFetchFailure &&
+              shuffleClient.reportShuffleFetchFailure(handle.shuffleId, shuffleId)) {
+              throw new FetchFailedException(
+                null,
+                handle.shuffleId,
+                -1,
+                -1,
+                startPartition,
+                SparkUtils.FETCH_FAILURE_ERROR_MSG + handle.shuffleId + "/" + shuffleId,
+                e)
+            } else
+              throw e
+        }
+      }
 
 
     val recordIter = (startPartition until endPartition).iterator.map(partitionId => {
