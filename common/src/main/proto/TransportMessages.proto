@@ -103,6 +103,8 @@ enum MessageType {
   BATCH_OPEN_STREAM = 80;
   BATCH_OPEN_STREAM_RESPONSE = 81;
   REPORT_WORKER_DECOMMISSION = 82;
+  COMPOSITE_OPEN_STREAM = 83;
+  COMPOSITE_OPEN_STREAM_RESPONSE = 84;
 }
 
 enum StreamType {
@@ -662,6 +664,19 @@ message PbStreamHandlerOpt {
 
 message PbOpenStreamListResponse {
   repeated PbStreamHandlerOpt streamHandlerOpt = 2;
+}
+
+message PbCompositeOpenStream {
+  string shuffleKey = 1;
+  repeated string fileName = 2;
+  int32 startIndex = 3;
+  int32 endIndex = 4;
+  int32 initialCredit = 5;
+  bool readLocalShuffle = 6;
+}
+
+message PbCompositeOpenStreamResponse {
+  PbStreamHandlerOpt streamHandlerOpt = 1;
 }
 
 message PbPushDataHandShake {

@@ -64,26 +64,67 @@ public abstract class CelebornInputStream extends InputStream {
       ExceptionMaker exceptionMaker,
       MetricsCallback metricsCallback)
       throws IOException {
+    return create(
+            conf,
+            clientFactory,
+            shuffleKey,
+            locations,
+            streamHandlers,
+            attempts,
+            attemptNumber,
+            startMapIndex,
+            endMapIndex,
+            fetchExcludedWorkers,
+            shuffleClient,
+            appShuffleId,
+            shuffleId,
+            partitionId,
+            partitionId + 1,
+            exceptionMaker,
+            metricsCallback
+    );
+  }
+
+  public static CelebornInputStream create(
+          CelebornConf conf,
+          TransportClientFactory clientFactory,
+          String shuffleKey,
+          ArrayList<PartitionLocation> locations,
+          ArrayList<PbStreamHandler> streamHandlers,
+          int[] attempts,
+          int attemptNumber,
+          int startMapIndex,
+          int endMapIndex,
+          ConcurrentHashMap<String, Long> fetchExcludedWorkers,
+          ShuffleClient shuffleClient,
+          int appShuffleId,
+          int shuffleId,
+          int startPartitionId,
+          int endPartitionId,
+          ExceptionMaker exceptionMaker,
+          MetricsCallback metricsCallback)
+          throws IOException {
     if (locations == null || locations.size() == 0) {
       return emptyInputStream;
     } else {
       return new CelebornInputStreamImpl(
-          conf,
-          clientFactory,
-          shuffleKey,
-          locations,
-          streamHandlers,
-          attempts,
-          attemptNumber,
-          startMapIndex,
-          endMapIndex,
-          fetchExcludedWorkers,
-          shuffleClient,
-          appShuffleId,
-          shuffleId,
-          partitionId,
-          exceptionMaker,
-          metricsCallback);
+              conf,
+              clientFactory,
+              shuffleKey,
+              locations,
+              streamHandlers,
+              attempts,
+              attemptNumber,
+              startMapIndex,
+              endMapIndex,
+              fetchExcludedWorkers,
+              shuffleClient,
+              appShuffleId,
+              shuffleId,
+              startPartitionId,
+              endPartitionId,
+              exceptionMaker,
+              metricsCallback);
     }
   }
 
@@ -167,7 +208,8 @@ public abstract class CelebornInputStream extends InputStream {
     private ShuffleClient shuffleClient;
     private int appShuffleId;
     private int shuffleId;
-    private int partitionId;
+    private int startPartitionId;
+    private int endPartitionId;
     private ExceptionMaker exceptionMaker;
     private boolean closed = false;
 
@@ -185,7 +227,8 @@ public abstract class CelebornInputStream extends InputStream {
         ShuffleClient shuffleClient,
         int appShuffleId,
         int shuffleId,
-        int partitionId,
+        int startPartitionId,
+        int endPartitionId,
         ExceptionMaker exceptionMaker,
         MetricsCallback metricsCallback)
         throws IOException {
@@ -218,7 +261,8 @@ public abstract class CelebornInputStream extends InputStream {
       this.retryWaitMs = conf.networkIoRetryWaitMs(TransportModuleConstants.DATA_MODULE);
       this.callback = metricsCallback;
       this.exceptionMaker = exceptionMaker;
-      this.partitionId = partitionId;
+      this.startPartitionId = startPartitionId;
+      this.endPartitionId = endPartitionId;
       this.appShuffleId = appShuffleId;
       this.shuffleId = shuffleId;
       this.shuffleClient = shuffleClient;
@@ -527,10 +571,11 @@ public abstract class CelebornInputStream extends InputStream {
       if (!closed) {
         int locationsCount = locations.size();
         logger.debug(
-            "AppShuffleId {}, shuffleId {}, partitionId {}, total location count {}, read {}, skip {}",
+            "AppShuffleId {}, shuffleId {}, partitionId [{}, {}), total location count {}, read {}, skip {}",
             appShuffleId,
             shuffleId,
-            partitionId,
+            startPartitionId,
+            endPartitionId,
             locationsCount,
             locationsCount - skipCount.sum(),
             skipCount.sum());
@@ -671,7 +716,8 @@ public abstract class CelebornInputStream extends InputStream {
             ioe =
                 new CelebornIOException(
                     exceptionMaker.makeFetchFailureException(
-                        appShuffleId, shuffleId, partitionId, e));
+                        appShuffleId, shuffleId, startPartitionId, e));
+            // TODO: Fix the exception
           }
         }
         throw ioe;

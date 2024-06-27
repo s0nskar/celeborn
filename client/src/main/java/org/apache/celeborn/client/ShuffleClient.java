@@ -254,6 +254,21 @@ public abstract class ShuffleClient {
       MetricsCallback metricsCallback)
       throws IOException;
 
+  public abstract CelebornInputStream readPartitions(
+          int shuffleId,
+          int appShuffleId,
+          int startPartitionId,
+          int endPartitionId,
+          int attemptNumber,
+          int startMapIndex,
+          int endMapIndex,
+          ExceptionMaker exceptionMaker,
+          ArrayList<PartitionLocation> locations,
+          PbStreamHandler streamHandlers,
+          int[] mapAttempts,
+          MetricsCallback metricsCallback)
+          throws IOException;
+
   public abstract boolean cleanupShuffle(int shuffleId);
 
   public abstract void shutdown();
