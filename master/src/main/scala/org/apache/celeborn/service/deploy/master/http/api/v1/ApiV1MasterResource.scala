@@ -37,4 +37,7 @@ class ApiV1MasterResource extends ApiRequestContext {
 
   @Path("ratis")
   def ratisElection: Class[RatisResource] = classOf[RatisResource]
+
+  @Path("tags")
+  def tags: Class[TagsResource] = classOf[TagsResource]
 }

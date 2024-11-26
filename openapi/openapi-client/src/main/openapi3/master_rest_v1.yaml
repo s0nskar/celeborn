@@ -456,6 +456,24 @@ paths:
                 type: string
                 format: binary
 
+  /api/v1/tags:
+    get:
+      tags:
+        - Tag
+      operationId: getTags
+      description: List all tags of the service.
+      responses:
+        "200":
+          description: The request was successful.
+          content:
+            application/json:
+              schema:
+                type: object
+                    additionalProperties:
+                    type: array
+                    items:
+                        type: string
+
 components:
   schemas:
     ConfigData:
