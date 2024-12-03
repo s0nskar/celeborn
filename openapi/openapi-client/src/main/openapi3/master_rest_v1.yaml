@@ -16,7 +16,7 @@
 #
 openapi: 3.0.0
 servers:
-  - url: http://localhost:9098/
+  - url: http://192.168.29.15:9098/
     description: Localhost reference server
 security:
   - basic: []
@@ -468,11 +468,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                    additionalProperties:
-                    type: array
-                    items:
-                        type: string
+                $ref: "#/components/schemas/TagsResponse"
 
 components:
   schemas:
@@ -1096,6 +1092,30 @@ components:
           description: The message of the request.
       required:
         - success
+
+    TagData:
+      type: object
+      properties:
+        tag:
+          description: The tag Name
+          type: string
+        workerIds:
+          description: The workerIds with the tag
+          type: array
+          items:
+            type: string
+      required:
+        - tag
+        - workerIds
+
+    TagsResponse:
+      type: object
+      description: The list of all tags
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/TagData"
 
   securitySchemes:
     basic:

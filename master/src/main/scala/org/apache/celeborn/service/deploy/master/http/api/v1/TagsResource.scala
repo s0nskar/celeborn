@@ -21,49 +21,43 @@ import io.swagger.v3.oas.annotations.media.{Content, Schema}
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.tags.Tag
 import org.apache.celeborn.common.CelebornConf
-import org.apache.celeborn.rest.v1.model.DynamicConfigResponse
+import org.apache.celeborn.rest.v1.model.{TagResponse, TagsResponse}
 import org.apache.celeborn.server.common.http.api.ApiRequestContext
-import org.apache.celeborn.server.common.service.config.ConfigLevel
-import org.apache.commons.lang3.StringUtils
 
-import javax.ws.rs.{Consumes, GET, Path, Produces, QueryParam, ServiceUnavailableException}
+import java.util.stream.Collectors
+import javax.ws.rs.{Consumes, GET, Produces, ServiceUnavailableException}
 import javax.ws.rs.core.MediaType
 
 @Tag(name = "Tags")
 @Produces(Array(MediaType.APPLICATION_JSON))
 @Consumes(Array(MediaType.APPLICATION_JSON))
 private[api] class TagsResource extends ApiRequestContext {
-  private def configService = httpService.configService
 
-  configService.getSystemConfigFromCache.getTags
+  private def configService = httpService.configService
 
   @ApiResponse(
     responseCode = "200",
     content = Array(new Content(
       mediaType = MediaType.APPLICATION_JSON,
-      schema = new Schema(implementation = classOf[DynamicConfigResponse]))),
-    description = "List the dynamic configs. " +
-      "The parameter level specifies the config level of dynamic configs. " +
-      "The parameter tenant specifies the tenant id of TENANT or TENANT_USER level. " +
-      "The parameter name specifies the user name of TENANT_USER level. " +
-      "Meanwhile, either none or all of the parameter tenant and name are specified for TENANT_USER level.")
+      schema = new Schema(implementation = classOf[TagsResponse]))),
+    description = "List of the workers tags")
   @GET
-  def tags: DynamicConfigResponse = {
+  def getTags: TagsResponse = {
     if (configService == null) {
       throw new ServiceUnavailableException(
         s"Dynamic configuration is disabled. Please check whether to config" +
           s" `${CelebornConf.DYNAMIC_CONFIG_STORE_BACKEND.key}`.")
     } else {
-      new TagResponse()
-      if (StringUtils.isEmpty(tag)) {
-        new DynamicConfigResponse()
-          .configs(ConfigLevel.values().flatMap { configLevel =>
-            getDynamicConfig(configLevel.name(), tenant, name)
-          }.toSeq.asJava)
-      } else {
-        new DynamicConfigResponse()
-          .configs(getDynamicConfig(level, tenant, name).asJava)
+      val tags = configService.getSystemConfigFromCache.getTags
+      val tagsResponse = new TagsResponse()
+      if (tags != null) {
+        tags.forEach((tag, w) => {
+          tagsResponse.addTagsItem(new TagResponse()
+            .tag(tag)
+            .workerIds(w.stream().collect(Collectors.toList())))
+        })
       }
+      tagsResponse
     }
   }
 }
