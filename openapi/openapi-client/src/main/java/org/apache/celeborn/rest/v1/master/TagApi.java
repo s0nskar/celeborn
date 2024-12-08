@@ -48,27 +48,29 @@ public class TagApi extends BaseApi {
 
   /**
    * 
-   * List all tags of the service.
+   * The parameter tags specifies comma separated list of tags names. Meanwhile, if parameter tags is not present list all worker tags in the cluster. 
+   * @param tags Comma separated list of tags names. (optional)
    * @return TagsResponse
    * @throws ApiException if fails to make API call
    */
-  public TagsResponse getTags() throws ApiException {
-    return this.getTags(Collections.emptyMap());
+  public TagsResponse getTags(String tags) throws ApiException {
+    return this.getTags(tags, Collections.emptyMap());
   }
 
 
   /**
    * 
-   * List all tags of the service.
+   * The parameter tags specifies comma separated list of tags names. Meanwhile, if parameter tags is not present list all worker tags in the cluster. 
+   * @param tags Comma separated list of tags names. (optional)
    * @param additionalHeaders additionalHeaders for this call
    * @return TagsResponse
    * @throws ApiException if fails to make API call
    */
-  public TagsResponse getTags(Map<String, String> additionalHeaders) throws ApiException {
+  public TagsResponse getTags(String tags, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
-    String localVarPath = "/api/v1/tags";
+    String localVarPath = "/api/v1/tags/list";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -78,6 +80,7 @@ public class TagApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
+    localVarQueryParams.addAll(apiClient.parameterToPair("tags", tags));
     
     localVarHeaderParams.putAll(additionalHeaders);
 

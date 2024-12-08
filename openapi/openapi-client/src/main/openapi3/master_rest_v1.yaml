@@ -16,7 +16,7 @@
 #
 openapi: 3.0.0
 servers:
-  - url: http://192.168.29.15:9098/
+  - url: http://localhost:9098/
     description: Localhost reference server
 security:
   - basic: []
@@ -456,12 +456,21 @@ paths:
                 type: string
                 format: binary
 
-  /api/v1/tags:
+  /api/v1/tags/list:
     get:
       tags:
         - Tag
       operationId: getTags
-      description: List all tags of the service.
+      description: |
+        The parameter tags specifies comma separated list of tags names.
+        Meanwhile, if parameter tags is not present list all worker tags in the cluster.
+      parameters:
+        - name: tags
+          in: query
+          description: Comma separated list of tags names.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: The request was successful.
@@ -1093,7 +1102,7 @@ components:
       required:
         - success
 
-    TagData:
+    TagResponse:
       type: object
       properties:
         tag:
@@ -1115,7 +1124,7 @@ components:
         tags:
           type: array
           items:
-            $ref: "#/components/schemas/TagData"
+            $ref: "#/components/schemas/TagResponse"
 
   securitySchemes:
     basic:

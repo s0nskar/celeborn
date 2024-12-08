@@ -89,10 +89,10 @@ import org.apache.celeborn.rest.v1.master.invoker.auth.HttpBasicAuth;
 public class ApiClient extends JavaTimeFormatter {
   private Map<String, String> defaultHeaderMap = new HashMap<String, String>();
   private Map<String, String> defaultCookieMap = new HashMap<String, String>();
-  private String basePath = "http://192.168.29.15:9098";
+  private String basePath = "http://localhost:9098";
   protected List<ServerConfiguration> servers = new ArrayList<ServerConfiguration>(Arrays.asList(
     new ServerConfiguration(
-      "http://192.168.29.15:9098",
+      "http://localhost:9098",
       "Localhost reference server",
       new HashMap<String, ServerVariable>()
     )

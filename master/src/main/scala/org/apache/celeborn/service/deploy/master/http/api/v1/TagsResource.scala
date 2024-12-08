@@ -17,16 +17,21 @@
 
 package org.apache.celeborn.service.deploy.master.http.api.v1
 
+import java.util
+import java.util.stream.Collectors
+import javax.ws.rs.{Consumes, GET, Produces, QueryParam, ServiceUnavailableException}
+import javax.ws.rs.core.MediaType
+
+import scala.collection.JavaConverters.asJavaIterableConverter
+
 import io.swagger.v3.oas.annotations.media.{Content, Schema}
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.tags.Tag
+import org.apache.commons.lang3.StringUtils
+
 import org.apache.celeborn.common.CelebornConf
 import org.apache.celeborn.rest.v1.model.{TagResponse, TagsResponse}
 import org.apache.celeborn.server.common.http.api.ApiRequestContext
-
-import java.util.stream.Collectors
-import javax.ws.rs.{Consumes, GET, Produces, ServiceUnavailableException}
-import javax.ws.rs.core.MediaType
 
 @Tag(name = "Tags")
 @Produces(Array(MediaType.APPLICATION_JSON))
@@ -42,21 +47,33 @@ private[api] class TagsResource extends ApiRequestContext {
       schema = new Schema(implementation = classOf[TagsResponse]))),
     description = "List of the workers tags")
   @GET
-  def getTags: TagsResponse = {
+  def getTags(
+      @QueryParam("tag") tag: String): TagsResponse = {
     if (configService == null) {
       throw new ServiceUnavailableException(
         s"Dynamic configuration is disabled. Please check whether to config" +
           s" `${CelebornConf.DYNAMIC_CONFIG_STORE_BACKEND.key}`.")
     } else {
-      val tags = configService.getSystemConfigFromCache.getTags
+      val tagStore = configService.getSystemConfigFromCache.getTags
       val tagsResponse = new TagsResponse()
-      if (tags != null) {
-        tags.forEach((tag, w) => {
-          tagsResponse.addTagsItem(new TagResponse()
-            .tag(tag)
-            .workerIds(w.stream().collect(Collectors.toList())))
-        })
+
+      if (tagStore == null) {
+        return tagsResponse
       }
+
+      val tagKeys =
+        if (StringUtils.isEmpty(tag)) {
+          tagStore.keySet()
+        } else {
+          tag.split(",").toSet.asJava
+        }
+
+      tagKeys.forEach(tag => {
+        val w = tagStore.getOrDefault(tag, new util.HashSet[String]())
+        tagsResponse.addTagsItem(new TagResponse()
+          .tag(tag)
+          .workerIds(w.stream().collect(Collectors.toList())))
+      })
       tagsResponse
     }
   }
