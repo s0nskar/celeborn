@@ -28,7 +28,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import org.apache.celeborn.rest.v1.model.TagData;
+import org.apache.celeborn.rest.v1.model.TagResponse;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 
@@ -41,18 +41,18 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 @javax.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.8.0")
 public class TagsResponse {
   public static final String JSON_PROPERTY_TAGS = "tags";
-  private List<TagData> tags = new ArrayList<>();
+  private List<TagResponse> tags = new ArrayList<>();
 
   public TagsResponse() {
   }
 
-  public TagsResponse tags(List<TagData> tags) {
+  public TagsResponse tags(List<TagResponse> tags) {
     
     this.tags = tags;
     return this;
   }
 
-  public TagsResponse addTagsItem(TagData tagsItem) {
+  public TagsResponse addTagsItem(TagResponse tagsItem) {
     if (this.tags == null) {
       this.tags = new ArrayList<>();
     }
@@ -68,14 +68,14 @@ public class TagsResponse {
   @JsonProperty(JSON_PROPERTY_TAGS)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
-  public List<TagData> getTags() {
+  public List<TagResponse> getTags() {
     return tags;
   }
 
 
   @JsonProperty(JSON_PROPERTY_TAGS)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setTags(List<TagData> tags) {
+  public void setTags(List<TagResponse> tags) {
     this.tags = tags;
   }
 
