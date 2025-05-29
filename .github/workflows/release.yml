@@ -1,0 +1,117 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: Release Apache Celeborn
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to release (Ex– main or branch-0.5). Leave it empty to launch a dryrun. NOTE: Please dispatch this workflow only in the forked repository.'
+        required: false
+      release-version:
+        description: 'Release version (Ex- 0.6.0). Leave it empty to launch a dryrun.'
+        required: false
+      rc-count:
+        description: 'RC number (Ex- 0 or 1). Leave it empty to launch a dryrun.'
+        required: false
+      finalize:
+        description: 'Whether to convert RC to the official release (IRREVERSIBLE)'
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  release:
+    name: Release Apache Celeborn
+    runs-on: ubuntu-22.04
+    # Do not allow dispatching this workflow manually in the main repo.
+    # and skip this workflow in forked repository when running as a
+    # scheduled job (dryrun).
+    if: ${{ (github.repository == 'apache/celeborn') != (inputs.branch != '' && inputs.release-version != '') }}
+    steps:
+      - name: Checkout Celeborn repository
+        uses: actions/checkout@v4
+        with:
+          repository: apache/celeborn
+          ref: "${{ inputs.branch }}"
+      - name: Release Apache Celeborn
+        env:
+          GIT_BRANCH: "${{ inputs.branch }}"
+          RELEASE_VERSION: "${{ inputs.release-version }}"
+          RC_COUNT: "${{ inputs.rc-count }}"
+          IS_FINALIZE: "${{ inputs.finalize }}"
+#          GIT_NAME: "${{ github.actor }}"
+#          ASF_USERNAME: "${{ secrets.ASF_USERNAME }}"
+#          ASF_PASSWORD: "${{ secrets.ASF_PASSWORD }}"
+#          GPG_PRIVATE_KEY: "${{ secrets.GPG_PRIVATE_KEY }}"
+#          GPG_PASSPHRASE: "${{ secrets.GPG_PASSPHRASE }}"
+#          PYPI_API_TOKEN: "${{ secrets.PYPI_API_TOKEN }}"
+          DEBUG_MODE: 1
+          ANSWER: y
+        run: |
+          if [ "$IS_FINALIZE" = "true" ]; then
+            echo ""
+            echo "┌────────────────────────────────────────────────────────────────────────────┐"
+            echo "│                               !!! WARNING !!!                              │"
+            echo "├────────────────────────────────────────────────────────────────────────────┤"
+            echo "│ This step will CONVERT THE RC ARTIFACTS into THE OFFICIAL RELEASE.         │"
+            echo "│                                                                            │"
+            echo "│    This action is IRREVERSIBLE.                                            │"
+            echo "│                                                                            │"
+            echo "│ The workflow will continue in 60 seconds.                                  │"
+            echo "│ Cancel this workflow now if you do NOT intend to finalize the release.     │"
+            echo "└────────────────────────────────────────────────────────────────────────────┘"
+            echo ""
+
+            sleep 60
+          fi
+
+          empty_count=0
+          non_empty_count=0
+          for val in "$GIT_BRANCH" "$RELEASE_VERSION" "$SPARK_RC_COUNT"; do
+            if [ -z "$val" ]; then
+              empty_count=$((empty_count+1))
+            else
+              non_empty_count=$((non_empty_count+1))
+            fi
+          done
+
+          if [ "$empty_count" -gt 0 ] && [ "$non_empty_count" -gt 0 ]; then
+            echo "Error: Either provide all inputs or leave them all empty for a dryrun."
+            exit 1
+          fi
+
+          if [ "$empty_count" -eq 3 ]; then
+            echo "Dry run mode enabled"
+            export DRYRUN_MODE=1
+            ASF_USERNAME="not_used"
+            ASF_PASSWORD="not_used"
+            GPG_PRIVATE_KEY="not_used"
+            GPG_PASSPHRASE="not_used"
+            export SKIP_TAG=1
+            unset GIT_BRANCH
+            unset RELEASE_VERSION
+          else
+            echo "Full release mode enabled"
+            export DRYRUN_MODE=0
+          fi
+
+          export ASF_PASSWORD GPG_PRIVATE_KEY GPG_PASSPHRASE ASF_USERNAME
+          [ -n "$GIT_BRANCH" ] && export GIT_BRANCH
+          [ -n "$RELEASE_VERSION" ] && export RELEASE_VERSION
+
