@@ -17,11 +17,11 @@
 
 package org.apache.celeborn.service.deploy.worker.congestcontrol;
 
-public class UserBufferInfo {
+public class BufferInfo {
   long timestamp;
   final BufferStatusHub bufferStatusHub;
 
-  public UserBufferInfo(long timestamp, BufferStatusHub bufferStatusHub) {
+  public BufferInfo(long timestamp, BufferStatusHub bufferStatusHub) {
     this.timestamp = timestamp;
     this.bufferStatusHub = bufferStatusHub;
   }
@@ -37,5 +37,9 @@ public class UserBufferInfo {
 
   public BufferStatusHub getBufferStatusHub() {
     return bufferStatusHub;
+  }
+
+  public long avgBytesPerSec() {
+    return bufferStatusHub.avgBytesPerSec();
   }
 }

@@ -316,8 +316,8 @@ class PushDataHandler(val workerSource: WorkerSource) extends BaseMessageHandler
                     } else {
                       Option(CongestionController.instance()) match {
                         case Some(congestionController) =>
-                          if (congestionController.isUserCongested(
-                              fileWriter.getUserCongestionControlContext)) {
+                          if (congestionController.isAppCongested(
+                              fileWriter.getAppCongestionControlContext)) {
                             // Check whether primary congest the data though the replicas doesn't congest
                             // it(the response is empty)
                             callbackWithTimer.onSuccess(
@@ -402,8 +402,8 @@ class PushDataHandler(val workerSource: WorkerSource) extends BaseMessageHandler
             } else {
               Option(CongestionController.instance()) match {
                 case Some(congestionController) =>
-                  if (congestionController.isUserCongested(
-                      fileWriter.getUserCongestionControlContext)) {
+                  if (congestionController.isAppCongested(
+                      fileWriter.getAppCongestionControlContext)) {
                     if (isPrimary) {
                       callbackWithTimer.onSuccess(
                         ByteBuffer.wrap(
@@ -691,8 +691,8 @@ class PushDataHandler(val workerSource: WorkerSource) extends BaseMessageHandler
                       val userCongested =
                         fileWriters
                           .find(_ != null)
-                          .map(_.getUserCongestionControlContext)
-                          .exists(congestionController.isUserCongested)
+                          .map(_.getAppCongestionControlContext)
+                          .exists(congestionController.isAppCongested)
                       if (userCongested) {
                         // Check whether primary congest the data though the replicas doesn't congest
                         // it(the response is empty)
@@ -802,8 +802,8 @@ class PushDataHandler(val workerSource: WorkerSource) extends BaseMessageHandler
               val userCongested =
                 fileWriters
                   .find(_ != null)
-                  .map(_.getUserCongestionControlContext)
-                  .exists(congestionController.isUserCongested)
+                  .map(_.getAppCongestionControlContext)
+                  .exists(congestionController.isAppCongested)
               if (userCongested) {
                 if (isPrimary) {
                   pushMergedDataCallback.onSuccess(StatusCode.PUSH_DATA_SUCCESS_PRIMARY_CONGESTED)

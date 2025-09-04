@@ -37,7 +37,7 @@ import org.apache.celeborn.common.protocol.PartitionSplitMode;
 import org.apache.celeborn.common.protocol.StorageInfo;
 import org.apache.celeborn.service.deploy.worker.WorkerSource;
 import org.apache.celeborn.service.deploy.worker.congestcontrol.CongestionController;
-import org.apache.celeborn.service.deploy.worker.congestcontrol.UserCongestionControlContext;
+import org.apache.celeborn.service.deploy.worker.congestcontrol.AppCongestionControlContext;
 import org.apache.celeborn.service.deploy.worker.memory.MemoryManager;
 
 /*
@@ -57,7 +57,7 @@ public class PartitionDataWriter implements DeviceObserver {
   private final StorageManager storageManager;
   private final FlushNotifier notifier = new FlushNotifier();
 
-  private UserCongestionControlContext userCongestionControlContext = null;
+  private AppCongestionControlContext appCongestionControlContext = null;
   private volatile TierWriterBase currentTierWriter;
 
   public PartitionDataWriter(
@@ -80,9 +80,10 @@ public class PartitionDataWriter implements DeviceObserver {
 
     logger.debug("FileWriter {} split threshold {} mode {}", this, splitThreshold, splitMode);
     if (CongestionController.instance() != null) {
-      userCongestionControlContext =
+      appCongestionControlContext =
           CongestionController.instance()
-              .getUserCongestionContext(writerContext.getUserIdentifier());
+              .getAppCongestionContext(
+                      writerContext.getAppId(), writerContext.getUserIdentifier());
     }
 
     writerContext.setPartitionDataWriter(this);
@@ -281,8 +282,8 @@ public class PartitionDataWriter implements DeviceObserver {
     return ((MemoryFileInfo) currentTierWriter.fileInfo());
   }
 
-  public UserCongestionControlContext getUserCongestionControlContext() {
-    return userCongestionControlContext;
+  public AppCongestionControlContext getAppCongestionControlContext() {
+    return appCongestionControlContext;
   }
 
   public void handleEvents(GeneratedMessageV3 message) {

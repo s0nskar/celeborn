@@ -38,7 +38,7 @@ import org.apache.celeborn.common.unsafe.Platform
 import org.apache.celeborn.common.util.FileChannelUtils
 import org.apache.celeborn.server.common.service.mpu.MultipartUploadHandler
 import org.apache.celeborn.service.deploy.worker.WorkerSource
-import org.apache.celeborn.service.deploy.worker.congestcontrol.{CongestionController, UserCongestionControlContext}
+import org.apache.celeborn.service.deploy.worker.congestcontrol.{CongestionController, AppCongestionControlContext}
 import org.apache.celeborn.service.deploy.worker.memory.MemoryManager
 
 abstract class TierWriterBase(
@@ -385,9 +385,10 @@ class LocalTierWriter(
   assert(storageType == StorageInfo.Type.HDD || storageType == StorageInfo.Type.SSD)
   flusherBufferSize = conf.workerFlusherBufferSize
   private val flushWorkerIndex: Int = flusher.getWorkerIndex
-  val userCongestionControlContext: UserCongestionControlContext =
+  val appCongestionControlContext: AppCongestionControlContext =
     if (CongestionController.instance != null)
-      CongestionController.instance.getUserCongestionContext(
+      CongestionController.instance.getAppCongestionContext(
+        partitionDataWriterContext.getAppId,
         partitionDataWriterContext.getUserIdentifier)
     else
       null
@@ -412,8 +413,8 @@ class LocalTierWriter(
 
   override def writeInternal(buf: ByteBuf): Unit = {
     val numBytes = buf.readableBytes()
-    if (userCongestionControlContext != null)
-      userCongestionControlContext.updateProduceBytes(numBytes)
+    if (appCongestionControlContext != null)
+      appCongestionControlContext.updateProduceBytes(numBytes)
     val flushBufferReadableBytes = flushBuffer.readableBytes
     if (flushBufferReadableBytes != 0 && flushBufferReadableBytes + numBytes >= flusherBufferSize) {
       flush(false)

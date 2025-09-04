@@ -41,6 +41,8 @@ public class TestCongestionController {
   public void initialize() {
     CelebornConf celebornConf = new CelebornConf();
     celebornConf.set(
+            CelebornConf.WORKER_CONGESTION_CONTROL_SAMPLE_TIME_WINDOW().key(), "10s");
+    celebornConf.set(
         CelebornConf.WORKER_CONGESTION_CONTROL_DISK_BUFFER_HIGH_WATERMARK().key(), "1000");
     celebornConf.set(
         CelebornConf.WORKER_CONGESTION_CONTROL_DISK_BUFFER_LOW_WATERMARK().key(), "500");
@@ -57,7 +59,7 @@ public class TestCongestionController {
         CelebornConf.WORKER_CONGESTION_CONTROL_USER_INACTIVE_INTERVAL(), userInactiveTimeMills);
     // Make sampleTimeWindow a bit larger in case the tests run time exceed this window.
     controller =
-        new CongestionController(source, 10, celebornConf, null) {
+        new CongestionController(source, celebornConf, null) {
           @Override
           public long getTotalPendingBytes() {
             return pendingBytes;
@@ -80,19 +82,19 @@ public class TestCongestionController {
   @Test
   public void testSingleUser() {
     UserIdentifier userIdentifier = new UserIdentifier("test", "celeborn");
-    UserCongestionControlContext userCongestionControlContext =
-        controller.getUserCongestionContext(userIdentifier);
-    Assert.assertFalse(controller.isUserCongested(userCongestionControlContext));
+    AppCongestionControlContext userCongestionControlContext =
+        controller.getAppCongestionContext("app_id_1", userIdentifier);
+    Assert.assertFalse(controller.isAppCongested(userCongestionControlContext));
 
     produceBytes(controller, userIdentifier, 1001);
     pendingBytes = 1001;
     controller.checkCongestion();
-    Assert.assertTrue(controller.isUserCongested(userCongestionControlContext));
+    Assert.assertTrue(controller.isAppCongested(userCongestionControlContext));
 
     controller.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(1001));
     pendingBytes = 0;
     controller.checkCongestion();
-    Assert.assertFalse(controller.isUserCongested(userCongestionControlContext));
+    Assert.assertFalse(controller.isAppCongested(userCongestionControlContext));
     clearBufferStatus(controller);
   }
 
@@ -101,12 +103,12 @@ public class TestCongestionController {
     UserIdentifier user1 = new UserIdentifier("test", "celeborn");
     UserIdentifier user2 = new UserIdentifier("test", "spark");
 
-    UserCongestionControlContext context1 = controller.getUserCongestionContext(user1);
-    UserCongestionControlContext context2 = controller.getUserCongestionContext(user2);
+    AppCongestionControlContext context1 = controller.getAppCongestionContext("app_id_1", user1);
+    AppCongestionControlContext context2 = controller.getAppCongestionContext("app_id_2", user2);
 
     // Both users should not be congested at first
-    Assert.assertFalse(controller.isUserCongested(context1));
-    Assert.assertFalse(controller.isUserCongested(context2));
+    Assert.assertFalse(controller.isAppCongested(context1));
+    Assert.assertFalse(controller.isAppCongested(context2));
 
     // If pendingBytes exceed the high watermark, user1 produce speed > avg produce speed
     // While user2 produce speed < avg produce speed
@@ -115,8 +117,8 @@ public class TestCongestionController {
     controller.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(500));
     pendingBytes = 1001;
     controller.checkCongestion();
-    Assert.assertTrue(controller.isUserCongested(context1));
-    Assert.assertFalse(controller.isUserCongested(context2));
+    Assert.assertTrue(controller.isAppCongested(context1));
+    Assert.assertFalse(controller.isAppCongested(context2));
 
     // If both users higher than the avg produce speed, should congest them all.
     produceBytes(controller, user1, 800);
@@ -124,23 +126,23 @@ public class TestCongestionController {
     controller.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(500));
     pendingBytes = 1600;
     controller.checkCongestion();
-    Assert.assertTrue(controller.isUserCongested(context1));
-    Assert.assertTrue(controller.isUserCongested(context2));
+    Assert.assertTrue(controller.isAppCongested(context1));
+    Assert.assertTrue(controller.isAppCongested(context2));
 
     // If pending bytes lower than the low watermark, should don't congest all users.
     pendingBytes = 0;
     controller.checkCongestion();
-    Assert.assertFalse(controller.isUserCongested(context1));
-    Assert.assertFalse(controller.isUserCongested(context2));
+    Assert.assertFalse(controller.isAppCongested(context1));
+    Assert.assertFalse(controller.isAppCongested(context2));
     clearBufferStatus(controller);
   }
 
   @Test
   public void testUserMetrics() throws InterruptedException {
     UserIdentifier user = new UserIdentifier("test", "celeborn");
-    UserCongestionControlContext context = controller.getUserCongestionContext(user);
+    AppCongestionControlContext context = controller.getAppCongestionContext("app_id_1", user);
 
-    Assert.assertFalse(controller.isUserCongested(context));
+    Assert.assertFalse(controller.isAppCongested(context));
     produceBytes(controller, user, 800);
 
     Assert.assertTrue(source.gaugeExists(WorkerSource.USER_PRODUCE_SPEED(), user.toMap()));
@@ -154,13 +156,15 @@ public class TestCongestionController {
   public void produceBytes(
       CongestionController controller, UserIdentifier userIdentifier, long numBytes) {
     controller
-        .getUserBuffer(userIdentifier)
+        .getUserBufferInfo(userIdentifier)
         .updateInfo(System.currentTimeMillis(), new BufferStatusHub.BufferStatusNode(numBytes));
   }
 
   @Test
   public void testUserLevelTrafficQuota() throws InterruptedException {
     CelebornConf celebornConf = new CelebornConf();
+    celebornConf.set(
+            CelebornConf.WORKER_CONGESTION_CONTROL_SAMPLE_TIME_WINDOW().key(), "10s");
     celebornConf.set(
         CelebornConf.WORKER_CONGESTION_CONTROL_DISK_BUFFER_HIGH_WATERMARK().key(), "100000");
     celebornConf.set(
@@ -175,7 +179,7 @@ public class TestCongestionController {
         CelebornConf.WORKER_CONGESTION_CONTROL_WORKER_PRODUCE_SPEED_LOW_WATERMARK().key(), "1000");
     celebornConf.set(CelebornConf.WORKER_CONGESTION_CONTROL_USER_INACTIVE_INTERVAL(), 120L * 1000);
     CongestionController controller1 =
-        new CongestionController(source, 10, celebornConf, null) {
+        new CongestionController(source, celebornConf, null) {
           @Override
           public long getTotalPendingBytes() {
             return 0;
@@ -189,37 +193,37 @@ public class TestCongestionController {
     controller1.shutDownCheckService();
 
     UserIdentifier user1 = new UserIdentifier("test1", "celeborn");
-    UserCongestionControlContext context1 = controller1.getUserCongestionContext(user1);
-    Assert.assertFalse(controller1.isUserCongested(context1));
+    AppCongestionControlContext context1 = controller1.getAppCongestionContext("app_id_1", user1);
+    Assert.assertFalse(controller1.isAppCongested(context1));
     produceBytes(controller1, user1, 600);
     controller1.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(600));
-    Assert.assertTrue(controller1.isUserCongested(context1));
+    Assert.assertTrue(controller1.isAppCongested(context1));
     Thread.sleep(1001);
     produceBytes(controller1, user1, 100);
     // user1 produce speed is 350mb/s
-    Assert.assertFalse(controller1.isUserCongested(context1));
+    Assert.assertFalse(controller1.isAppCongested(context1));
 
     UserIdentifier user2 = new UserIdentifier("test2", "celeborn");
-    UserCongestionControlContext context2 = controller1.getUserCongestionContext(user2);
-    Assert.assertFalse(controller1.isUserCongested(context2));
+    AppCongestionControlContext context2 = controller1.getAppCongestionContext("app_id_2", user2);
+    Assert.assertFalse(controller1.isAppCongested(context2));
     produceBytes(controller1, user2, 400);
     // user2 produce speed is 400mb/s
-    Assert.assertFalse(controller1.isUserCongested(context2));
+    Assert.assertFalse(controller1.isAppCongested(context2));
 
     UserIdentifier user3 = new UserIdentifier("test3", "celeborn");
-    UserCongestionControlContext context3 = controller1.getUserCongestionContext(user3);
-    Assert.assertFalse(controller1.isUserCongested(context3));
+    AppCongestionControlContext context3 = controller1.getAppCongestionContext("app_id_3", user3);
+    Assert.assertFalse(controller1.isAppCongested(context3));
     produceBytes(controller1, user3, 400);
     // user produce speed is 400mb/s
-    Assert.assertFalse(controller1.isUserCongested(context3));
+    Assert.assertFalse(controller1.isAppCongested(context3));
 
     produceBytes(controller1, user1, 400);
     controller1.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(1300));
     controller1.checkCongestion();
     // user1 -> 550mb/s, user2 -> 400mb/s, user3 -> 400mb/s, avg consume 316mb/s
-    Assert.assertTrue(controller1.isUserCongested(context1));
-    Assert.assertFalse(controller1.isUserCongested(context2));
-    Assert.assertFalse(controller1.isUserCongested(context3));
+    Assert.assertTrue(controller1.isAppCongested(context1));
+    Assert.assertFalse(controller1.isAppCongested(context2));
+    Assert.assertFalse(controller1.isAppCongested(context3));
 
     Thread.sleep(1001);
     produceBytes(controller1, user1, 10);
@@ -227,15 +231,17 @@ public class TestCongestionController {
     produceBytes(controller1, user3, 50);
     controller1.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(110));
     controller1.checkCongestion();
-    Assert.assertFalse(controller1.isUserCongested(context1));
-    Assert.assertFalse(controller1.isUserCongested(context2));
-    Assert.assertFalse(controller1.isUserCongested(context3));
+    Assert.assertFalse(controller1.isAppCongested(context1));
+    Assert.assertFalse(controller1.isAppCongested(context2));
+    Assert.assertFalse(controller1.isAppCongested(context3));
     controller1.close();
   }
 
   @Test
   public void testWorkerLevelTrafficQuota() throws InterruptedException {
     CelebornConf celebornConf = new CelebornConf();
+    celebornConf.set(
+            CelebornConf.WORKER_CONGESTION_CONTROL_SAMPLE_TIME_WINDOW().key(), "10s");
     celebornConf.set(
         CelebornConf.WORKER_CONGESTION_CONTROL_DISK_BUFFER_HIGH_WATERMARK().key(), "100000");
     celebornConf.set(
@@ -250,7 +256,7 @@ public class TestCongestionController {
         CelebornConf.WORKER_CONGESTION_CONTROL_WORKER_PRODUCE_SPEED_LOW_WATERMARK().key(), "700");
     celebornConf.set(CelebornConf.WORKER_CONGESTION_CONTROL_USER_INACTIVE_INTERVAL(), 120L * 1000);
     CongestionController controller1 =
-        new CongestionController(source, 10, celebornConf, null) {
+        new CongestionController(source, celebornConf, null) {
           @Override
           public long getTotalPendingBytes() {
             return 0;
@@ -264,29 +270,29 @@ public class TestCongestionController {
     controller1.shutDownCheckService();
 
     UserIdentifier user1 = new UserIdentifier("test1", "celeborn");
-    UserCongestionControlContext context1 = controller1.getUserCongestionContext(user1);
-    Assert.assertFalse(controller1.isUserCongested(context1));
+    AppCongestionControlContext context1 = controller1.getAppCongestionContext("app_id_1", user1);
+    Assert.assertFalse(controller1.isAppCongested(context1));
     produceBytes(controller1, user1, 500);
     controller1.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(500));
-    Assert.assertFalse(controller1.isUserCongested(context1));
+    Assert.assertFalse(controller1.isAppCongested(context1));
 
     UserIdentifier user2 = new UserIdentifier("test2", "celeborn");
-    UserCongestionControlContext context2 = controller1.getUserCongestionContext(user2);
+    AppCongestionControlContext context2 = controller1.getAppCongestionContext("app_id_2", user2);
     produceBytes(controller1, user2, 400);
     controller1.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(400));
-    Assert.assertFalse(controller1.isUserCongested(context2));
+    Assert.assertFalse(controller1.isAppCongested(context2));
 
     controller1.checkCongestion();
-    Assert.assertTrue(controller1.isUserCongested(context1));
-    Assert.assertFalse(controller1.isUserCongested(context2));
+    Assert.assertTrue(controller1.isAppCongested(context1));
+    Assert.assertFalse(controller1.isAppCongested(context2));
 
     Thread.sleep(1001);
     produceBytes(controller1, user1, 200);
     produceBytes(controller1, user1, 200);
     controller1.getProducedBufferStatusHub().add(new BufferStatusHub.BufferStatusNode(400));
     controller1.checkCongestion();
-    Assert.assertFalse(controller1.isUserCongested(context1));
-    Assert.assertFalse(controller1.isUserCongested(context2));
+    Assert.assertFalse(controller1.isAppCongested(context1));
+    Assert.assertFalse(controller1.isAppCongested(context2));
     controller1.close();
   }
 
@@ -294,6 +300,8 @@ public class TestCongestionController {
   public void testDynamicConfiguration() throws IOException, InterruptedException {
     String file1 = getClass().getResource("/dynamicConfig.yaml").getFile();
     CelebornConf celebornConf1 = new CelebornConf();
+    celebornConf1.set(
+            CelebornConf.WORKER_CONGESTION_CONTROL_SAMPLE_TIME_WINDOW().key(), "10s");
     celebornConf1.set(
         CelebornConf.WORKER_CONGESTION_CONTROL_DISK_BUFFER_HIGH_WATERMARK().key(), "100000");
     celebornConf1.set(
@@ -311,7 +319,7 @@ public class TestCongestionController {
     FsConfigServiceImpl configService = new FsConfigServiceImpl(celebornConf1);
 
     CongestionController controller1 =
-        new CongestionController(source, 10, celebornConf1, configService) {
+        new CongestionController(source, celebornConf1, configService) {
           @Override
           public long getTotalPendingBytes() {
             return 0;
@@ -324,10 +332,10 @@ public class TestCongestionController {
         };
 
     UserIdentifier user1 = new UserIdentifier("default", "Jerry");
-    UserCongestionControlContext context1 = controller1.getUserCongestionContext(user1);
-    Assert.assertFalse(controller1.isUserCongested(context1));
+    AppCongestionControlContext context1 = controller1.getAppCongestionContext("app_id_1", user1);
+    Assert.assertFalse(controller1.isAppCongested(context1));
     produceBytes(controller1, user1, 600);
-    Assert.assertTrue(controller1.isUserCongested(context1));
+    Assert.assertTrue(controller1.isAppCongested(context1));
 
     String file2 = getClass().getResource("/dynamicConfig_2.yaml").getFile();
     celebornConf1.set(CelebornConf.DYNAMIC_CONFIG_STORE_FS_PATH(), file2);
@@ -335,14 +343,14 @@ public class TestCongestionController {
     Thread.sleep(2001);
 
     produceBytes(controller1, user1, 600);
-    Assert.assertFalse(controller1.isUserCongested(context1));
+    Assert.assertFalse(controller1.isAppCongested(context1));
   }
 
   @Test
   public void testUpdateProduceBytes() throws InterruptedException {
     UserIdentifier user = new UserIdentifier("test", "celeborn");
-    UserCongestionControlContext userCongestionControlContext =
-        controller.getUserCongestionContext(user);
+    AppCongestionControlContext userCongestionControlContext =
+        controller.getAppCongestionContext("app_id_1", user);
     userCongestionControlContext.updateProduceBytes(1000);
     userCongestionControlContext.updateProduceBytes(1000);
     userCongestionControlContext.updateProduceBytes(1000);
@@ -356,14 +364,14 @@ public class TestCongestionController {
     Thread.sleep(timeWindowsInMills / 2 + 1);
 
     Assert.assertTrue(
-        userCongestionControlContext.getUserBufferInfo().getBufferStatusHub().avgBytesPerSec() > 0);
+        userCongestionControlContext.getUserBufferInfo().avgBytesPerSec() > 0);
     Assert.assertTrue(controller.getProducedBufferStatusHub().avgBytesPerSec() > 0);
   }
 
   private void clearBufferStatus(CongestionController controller) {
     controller.getProducedBufferStatusHub().clear();
     controller.getConsumedBufferStatusHub().clear();
-    for (UserCongestionControlContext context : controller.getUserCongestionContextMap().values()) {
+    for (AppCongestionControlContext context : controller.getAppCongestionContextMap().values()) {
       context.getUserBufferInfo().getBufferStatusHub().clear();
     }
   }

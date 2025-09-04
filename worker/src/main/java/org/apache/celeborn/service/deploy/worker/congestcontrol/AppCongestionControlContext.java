@@ -22,11 +22,15 @@ import org.apache.celeborn.common.metrics.source.AbstractSource;
 import org.apache.celeborn.common.quota.UserTrafficQuota;
 import org.apache.celeborn.service.deploy.worker.WorkerSource;
 
-public class UserCongestionControlContext {
+public class AppCongestionControlContext {
 
   private volatile boolean congestionControlFlag;
 
-  private final UserBufferInfo userBufferInfo;
+  private final String appId;
+
+  private final BufferInfo appBufferInfo;
+
+  private final BufferInfo userBufferInfo;
 
   private final BufferStatusHub workerBufferStatusHub;
 
@@ -34,21 +38,21 @@ public class UserCongestionControlContext {
 
   private volatile UserTrafficQuota userTrafficQuota;
 
-  public UserCongestionControlContext(
+  public AppCongestionControlContext(
+      String appId,
       UserTrafficQuota userTrafficQuota,
       BufferStatusHub workerBufferStatusHub,
-      UserBufferInfo userBufferInfo,
+      BufferInfo appIdBufferInfo,
+      BufferInfo userBufferInfo,
       AbstractSource workerSource,
       UserIdentifier userIdentifier) {
     this.congestionControlFlag = false;
-    this.userBufferInfo = userBufferInfo;
+    this.appId = appId;
     this.userIdentifier = userIdentifier;
+    this.appBufferInfo = appIdBufferInfo;
+    this.userBufferInfo = userBufferInfo;
     this.workerBufferStatusHub = workerBufferStatusHub;
     this.userTrafficQuota = userTrafficQuota;
-    workerSource.addGauge(
-        WorkerSource.USER_PRODUCE_SPEED(),
-        userIdentifier.toJMap(),
-        () -> userBufferInfo.getBufferStatusHub().avgBytesPerSec());
   }
 
   public void onCongestionControl() {
@@ -66,12 +70,21 @@ public class UserCongestionControlContext {
   public void updateProduceBytes(long numBytes) {
     long timeNow = System.currentTimeMillis();
     BufferStatusHub.BufferStatusNode node = new BufferStatusHub.BufferStatusNode(numBytes);
-    userBufferInfo.updateInfo(timeNow, node);
+    appBufferInfo.updateInfo(timeNow, node);
+    userBufferInfo.updateInfo(timeNow, (BufferStatusHub.BufferStatusNode) node.clone());
     workerBufferStatusHub.add(timeNow, (BufferStatusHub.BufferStatusNode) node.clone());
   }
 
-  public UserBufferInfo getUserBufferInfo() {
+  public BufferInfo getUserBufferInfo() {
     return userBufferInfo;
+  }
+
+  public BufferInfo getAppBufferInfo() {
+    return appBufferInfo;
+  }
+
+  public String getAppId() {
+    return appId;
   }
 
   public UserIdentifier getUserIdentifier() {

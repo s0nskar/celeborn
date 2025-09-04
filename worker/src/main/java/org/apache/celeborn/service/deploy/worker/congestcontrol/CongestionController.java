@@ -53,14 +53,13 @@ public class CongestionController {
 
   private final BufferStatusHub producedBufferStatusHub;
 
-  private final ConcurrentHashMap<UserIdentifier, UserBufferInfo> userBufferStatuses;
+  private final ConcurrentHashMap<UserIdentifier, BufferInfo> userBufferStatuses;
 
   private final ScheduledExecutorService removeUserExecutorService;
 
   private final ScheduledExecutorService checkService;
 
-  private final ConcurrentHashMap<UserIdentifier, UserCongestionControlContext>
-      userCongestionContextMap;
+  private final ConcurrentHashMap<String, AppCongestionControlContext> appCongestionContextMap;
 
   private final ConfigService configService;
 
@@ -70,17 +69,16 @@ public class CongestionController {
 
   protected CongestionController(
       WorkerSource workerSource,
-      int sampleTimeWindowSeconds,
       CelebornConf conf,
       ConfigService configService) {
 
     this.workerSource = workerSource;
-    this.sampleTimeWindowSeconds = sampleTimeWindowSeconds;
+    this.sampleTimeWindowSeconds = (int) conf.workerCongestionControlSampleTimeWindowSeconds();
     this.userInactiveTimeMills = conf.workerCongestionControlUserInactiveIntervalMs();
     this.consumedBufferStatusHub = new BufferStatusHub(sampleTimeWindowSeconds);
     this.producedBufferStatusHub = new BufferStatusHub(sampleTimeWindowSeconds);
     this.userBufferStatuses = JavaUtils.newConcurrentHashMap();
-    this.userCongestionContextMap = JavaUtils.newConcurrentHashMap();
+    this.appCongestionContextMap = JavaUtils.newConcurrentHashMap();
 
     defaultUserQuota =
         new UserTrafficQuota(
@@ -126,10 +124,9 @@ public class CongestionController {
 
   public static synchronized CongestionController initialize(
       WorkerSource workSource,
-      int sampleTimeWindowSeconds,
       CelebornConf conf,
       ConfigService configService) {
-    _INSTANCE = new CongestionController(workSource, sampleTimeWindowSeconds, conf, configService);
+    _INSTANCE = new CongestionController(workSource, conf, configService);
     return _INSTANCE;
   }
 
@@ -146,14 +143,16 @@ public class CongestionController {
    * <p>3. If the pending bytes doesn't exceed the high watermark, will allow all users to try to
    * get max throughout capacity.
    */
-  public boolean isUserCongested(UserCongestionControlContext userCongestionControlContext) {
-    if (userBufferStatuses.isEmpty()) {
+  public boolean isAppCongested(AppCongestionControlContext congestionControlContext) {
+    if (appCongestionContextMap.isEmpty()) {
       return false;
     }
 
-    UserIdentifier userIdentifier = userCongestionControlContext.getUserIdentifier();
-    long userProduceSpeed = getUserProduceSpeed(userCongestionControlContext.getUserBufferInfo());
-    UserTrafficQuota userTrafficQuota = userCongestionControlContext.getUserTrafficQuota();
+    String appId = congestionControlContext.getAppId();
+    long appProduceSpeed = getProduceSpeed(congestionControlContext.getAppBufferInfo());
+    UserIdentifier userIdentifier = congestionControlContext.getUserIdentifier();
+    long userProduceSpeed = getProduceSpeed(congestionControlContext.getUserBufferInfo());
+
     // If the user produce speed is higher that the avg consume speed, will congest it
     if (overHighWatermark.get()) {
       long avgConsumeSpeed = getPotentialProduceSpeed();
@@ -169,8 +168,9 @@ public class CongestionController {
       }
     }
 
+    UserTrafficQuota userTrafficQuota = congestionControlContext.getUserTrafficQuota();
     if (userProduceSpeed > userTrafficQuota.userProduceSpeedHighWatermark()) {
-      userCongestionControlContext.onCongestionControl();
+      congestionControlContext.onCongestionControl();
       if (logger.isDebugEnabled()) {
         logger.debug(
             "The user {}, produceSpeed is {}, while userProduceSpeedHighWatermark is {}, need to congest it.",
@@ -178,22 +178,43 @@ public class CongestionController {
             userProduceSpeed,
             userTrafficQuota.userProduceSpeedHighWatermark());
       }
-    } else if (userCongestionControlContext.inCongestionControl()
-        && userProduceSpeed < userTrafficQuota.userProduceSpeedLowWatermark()) {
-      userCongestionControlContext.offCongestionControl();
+    } else if (appProduceSpeed > userTrafficQuota.userProduceSpeedHighWatermark()) {
+      congestionControlContext.onCongestionControl();
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+                "The appId {}, produceSpeed is {}, while appProduceSpeedHighWatermark is {}, need to congest it.",
+                appId,
+                appProduceSpeed,
+                userTrafficQuota.userProduceSpeedHighWatermark());
+      }
+    } else if (congestionControlContext.inCongestionControl()
+        && userProduceSpeed < userTrafficQuota.userProduceSpeedLowWatermark()
+        && appProduceSpeed < userTrafficQuota.userProduceSpeedLowWatermark()) {
+      congestionControlContext.offCongestionControl();
     }
-    return userCongestionControlContext.inCongestionControl();
+    return congestionControlContext.inCongestionControl();
   }
 
-  public UserBufferInfo getUserBuffer(UserIdentifier userIdentifier) {
+  public BufferInfo getUserBufferInfo(UserIdentifier userIdentifier) {
     return userBufferStatuses.computeIfAbsent(
-        userIdentifier,
-        user -> {
-          logger.info("New user {} comes, initializing its rate status", user);
-          BufferStatusHub bufferStatusHub = new BufferStatusHub(sampleTimeWindowSeconds);
-          UserBufferInfo userInfo = new UserBufferInfo(System.currentTimeMillis(), bufferStatusHub);
-          return userInfo;
-        });
+            userIdentifier,
+            user -> {
+              logger.info("New user {} comes, initializing its rate status", user);
+              BufferStatusHub bufferStatusHub = new BufferStatusHub(sampleTimeWindowSeconds);
+              BufferInfo userBufferInfo = new BufferInfo(System.currentTimeMillis(), bufferStatusHub);
+              workerSource.addGauge(
+                      WorkerSource.USER_PRODUCE_SPEED(),
+                      userIdentifier.toJMap(),
+                      () -> userBufferInfo.avgBytesPerSec());
+              return userBufferInfo;
+            });
+  }
+
+  public BufferInfo getAppBufferInfo(String appId) {
+    logger.info("New appId {} comes, initializing its rate status", appId);
+    BufferStatusHub bufferStatusHub = new BufferStatusHub(sampleTimeWindowSeconds);
+    BufferInfo appBufferInfo = new BufferInfo(System.currentTimeMillis(), bufferStatusHub);
+    return appBufferInfo;
   }
 
   public void consumeBytes(int numBytes) {
@@ -215,25 +236,25 @@ public class CongestionController {
    * to determine the potential consume speed.
    */
   public long getPotentialConsumeSpeed() {
-    if (userBufferStatuses.size() == 0) {
+    if (appCongestionContextMap.isEmpty()) {
       return 0;
     }
 
-    return consumedBufferStatusHub.avgBytesPerSec() / userBufferStatuses.size();
+    return consumedBufferStatusHub.avgBytesPerSec() / appCongestionContextMap.size();
   }
 
   public long getPotentialProduceSpeed() {
-    if (userBufferStatuses.size() == 0) {
+    if (appCongestionContextMap.isEmpty()) {
       return 0;
     }
 
-    return producedBufferStatusHub.avgBytesPerSec() / userBufferStatuses.size();
+    return producedBufferStatusHub.avgBytesPerSec() / appCongestionContextMap.size();
   }
 
   /** Get the avg user produce speed, the unit is bytes/sec. */
-  private long getUserProduceSpeed(UserBufferInfo userBufferInfo) {
-    if (userBufferInfo != null) {
-      return userBufferInfo.getBufferStatusHub().avgBytesPerSec();
+  private long getProduceSpeed(BufferInfo bufferInfo) {
+    if (bufferInfo != null) {
+      return bufferInfo.avgBytesPerSec();
     }
 
     return 0L;
@@ -242,16 +263,14 @@ public class CongestionController {
   private void removeInactiveUsers() {
     try {
       long currentTimeMillis = System.currentTimeMillis();
-
-      Iterator<Map.Entry<UserIdentifier, UserBufferInfo>> iterator =
+      Iterator<Map.Entry<UserIdentifier, BufferInfo>> iterator =
           userBufferStatuses.entrySet().iterator();
       while (iterator.hasNext()) {
-        Map.Entry<UserIdentifier, UserBufferInfo> next = iterator.next();
+        Map.Entry<UserIdentifier, BufferInfo> next = iterator.next();
         UserIdentifier userIdentifier = next.getKey();
-        UserBufferInfo userBufferInfo = next.getValue();
+        BufferInfo userBufferInfo = next.getValue();
         if (currentTimeMillis - userBufferInfo.getTimestamp() >= userInactiveTimeMills) {
           userBufferStatuses.remove(userIdentifier);
-          userCongestionContextMap.remove(userIdentifier);
           workerSource.removeGauge(WorkerSource.USER_PRODUCE_SPEED(), userIdentifier.toMap());
           logger.info("User {} has been expired, remove from rate limit list", userIdentifier);
         }
@@ -315,11 +334,12 @@ public class CongestionController {
     return producedBufferStatusHub;
   }
 
-  public UserCongestionControlContext getUserCongestionContext(UserIdentifier userIdentifier) {
-    return userCongestionContextMap.computeIfAbsent(
-        userIdentifier,
-        user -> {
-          UserBufferInfo userBufferInfo = getUserBuffer(userIdentifier);
+  public AppCongestionControlContext getAppCongestionContext(String appId, UserIdentifier userIdentifier) {
+    return appCongestionContextMap.computeIfAbsent(
+        appId,
+        v -> {
+          BufferInfo appIdBufferInfo = getAppBufferInfo(appId);
+          BufferInfo userBufferInfo = getUserBufferInfo(userIdentifier);
           UserTrafficQuota userTrafficQuota;
           if (configService == null) {
             userTrafficQuota = defaultUserQuota;
@@ -329,18 +349,19 @@ public class CongestionController {
                     .getTenantUserConfigFromCache(userIdentifier.tenantId(), userIdentifier.name())
                     .getUserTrafficQuota();
           }
-          return new UserCongestionControlContext(
+          return new AppCongestionControlContext(
+              appId,
               userTrafficQuota,
               producedBufferStatusHub,
+              appIdBufferInfo,
               userBufferInfo,
               workerSource,
               userIdentifier);
         });
   }
 
-  public ConcurrentHashMap<UserIdentifier, UserCongestionControlContext>
-      getUserCongestionContextMap() {
-    return userCongestionContextMap;
+  public ConcurrentHashMap<String, AppCongestionControlContext> getAppCongestionContextMap() {
+    return appCongestionContextMap;
   }
 
   public BufferStatusHub getConsumedBufferStatusHub() {
@@ -349,10 +370,10 @@ public class CongestionController {
 
   private void updateQuota() {
     workerTrafficQuota = configService.getSystemConfigFromCache().getWorkerTrafficQuota();
-    for (Map.Entry<UserIdentifier, UserCongestionControlContext> entry :
+    for (Map.Entry<UserIdentifier, AppCongestionControlContext> entry :
         userCongestionContextMap.entrySet()) {
       UserIdentifier user = entry.getKey();
-      UserCongestionControlContext context = entry.getValue();
+      AppCongestionControlContext context = entry.getValue();
       context.updateUserTrafficQuota(
           configService
               .getTenantUserConfigFromCache(user.tenantId(), user.name())

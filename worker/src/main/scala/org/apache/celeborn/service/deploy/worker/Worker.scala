@@ -193,7 +193,6 @@ private[celeborn] class Worker(
   if (conf.workerCongestionControlEnabled) {
     CongestionController.initialize(
       workerSource,
-      conf.workerCongestionControlSampleTimeWindowSeconds.toInt,
       conf,
       configService)
   }
